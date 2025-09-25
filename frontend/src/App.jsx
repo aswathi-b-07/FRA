@@ -21,6 +21,16 @@ import GramSabhaPage from './pages/GramSabhaPage'
 import FraudDetectionPage from './pages/FraudDetectionPage'
 import MapViewPage from './pages/MapViewPage'
 
+// Test Components
+import FaceDetectionTest from './components/FaceDetectionTest'
+import SimpleFaceTest from './components/SimpleFaceTest'
+import SupabaseTest from './components/SupabaseTest'
+import VerificationTest from './components/VerificationTest'
+import DatabaseDebug from './components/DatabaseDebug'
+import SamePersonTest from './components/SamePersonTest'
+import VerificationWorkflowTest from './components/VerificationWorkflowTest'
+import NetworkTest from './components/NetworkTest'
+
 // Context
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 
@@ -89,6 +99,14 @@ function App() {
                       <Route path="/gram-sabha" element={<GramSabhaPage />} />
                       <Route path="/fraud-detection" element={<FraudDetectionPage />} />
                       <Route path="/map" element={<MapViewPage />} />
+                      <Route path="/face-test" element={<FaceDetectionTest />} />
+                      <Route path="/simple-face" element={<SimpleFaceTest />} />
+                      <Route path="/supabase-test" element={<SupabaseTest />} />
+                      <Route path="/verification-test" element={<VerificationTest />} />
+                      <Route path="/database-debug" element={<DatabaseDebug />} />
+                      <Route path="/same-person-test" element={<SamePersonTest />} />
+                      <Route path="/workflow-test" element={<VerificationWorkflowTest />} />
+                      <Route path="/network-test" element={<NetworkTest />} />
                       <Route path="*" element={<Navigate to="/dashboard" replace />} />
                     </Routes>
                   </Layout>

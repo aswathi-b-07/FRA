@@ -1,57 +1,159 @@
 const supabase = require('../utils/supabaseClient');
 
+// Helper function to calculate cosine similarity between two vectors
+function calculateCosineSimilarity(vec1, vec2) {
+  if (!vec1 || !vec2 || vec1.length !== vec2.length) {
+    return 0;
+  }
+
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+
+  for (let i = 0; i < vec1.length; i++) {
+    dotProduct += vec1[i] * vec2[i];
+    normA += vec1[i] * vec1[i];
+    normB += vec2[i] * vec2[i];
+  }
+
+  normA = Math.sqrt(normA);
+  normB = Math.sqrt(normB);
+
+  if (normA === 0 || normB === 0) {
+    return 0;
+  }
+
+  return dotProduct / (normA * normB);
+}
+
 const faceController = {
   // Verify face against stored embeddings
   verifyFace: async (req, res) => {
     try {
-      const { faceEmbedding, name, threshold = 0.8 } = req.body;
+      const { faceEmbedding, name, threshold = 0.5 } = req.body;
 
-      if (!faceEmbedding) {
-        return res.status(400).json({ error: 'Face embedding is required' });
-      }
-
-      // Convert embedding to vector format for database query
-      const embeddingVector = `[${faceEmbedding.join(',')}]`;
-
-      let query = `
-        SELECT *, 
-        (face_embedding <=> '${embeddingVector}'::vector) as distance
-        FROM records 
-        WHERE face_embedding IS NOT NULL
-      `;
-
-      if (name) {
-        query += ` AND name ILIKE '%${name}%'`;
-      }
-
-      query += ` ORDER BY face_embedding <=> '${embeddingVector}'::vector LIMIT 10`;
-
-      const { data, error } = await supabase.rpc('execute_sql', { 
-        sql_query: query 
+      console.log('🔍 Face verification request:', { 
+        embeddingLength: faceEmbedding?.length, 
+        embeddingType: typeof faceEmbedding,
+        isArray: Array.isArray(faceEmbedding),
+        name, 
+        threshold 
       });
 
-      if (error) {
-        console.error('Face verification query error:', error);
-        return res.status(500).json({ error: 'Database query failed' });
+      if (!faceEmbedding || !Array.isArray(faceEmbedding)) {
+        return res.status(400).json({ error: 'Valid face embedding array is required' });
       }
 
-      // Filter results by similarity threshold
-      const matches = data.filter(record => {
-        const similarity = 1 - record.distance; // Convert distance to similarity
-        return similarity >= threshold;
-      });
+      // Get all records with face embeddings
+      const { data: records, error: fetchError } = await supabase
+        .from('records')
+        .select('*')
+        .not('face_embedding', 'is', null);
 
-      if (matches.length === 0) {
+      if (fetchError) {
+        console.error('❌ Failed to fetch records:', fetchError);
+        return res.status(500).json({ error: 'Failed to fetch records for verification' });
+      }
+
+      if (!records || records.length === 0) {
+        console.log('❌ No records with face embeddings found');
         return res.json({
           success: false,
-          message: 'No matching face found',
-          matches: []
+          message: 'No records with face data found in database',
+          matches: [],
+          totalRecordsChecked: 0
+        });
+      }
+
+      console.log(`📊 Found ${records.length} records with face embeddings`);
+
+      // Calculate similarities using cosine similarity
+      const allComparisons = [];
+
+      for (const record of records) {
+        try {
+          // Parse stored face embedding
+          let storedEmbedding;
+          if (typeof record.face_embedding === 'string') {
+            try {
+              storedEmbedding = JSON.parse(record.face_embedding);
+            } catch (parseError) {
+              console.warn(`⚠️ Failed to parse JSON embedding for ${record.patta_id}:`, parseError);
+              continue;
+            }
+          } else if (Array.isArray(record.face_embedding)) {
+            storedEmbedding = record.face_embedding;
+          } else {
+            console.warn(`⚠️ Invalid face embedding format for record ${record.patta_id}:`, typeof record.face_embedding);
+            continue;
+          }
+
+          if (!Array.isArray(storedEmbedding) || storedEmbedding.length === 0) {
+            console.warn(`⚠️ Invalid stored embedding array for ${record.patta_id}`);
+            continue;
+          }
+
+          // Calculate cosine similarity
+          const similarity = calculateCosineSimilarity(faceEmbedding, storedEmbedding);
+          
+          console.log(`👤 ${record.name} (${record.patta_id}): similarity = ${(similarity * 100).toFixed(2)}% (${similarity >= threshold ? 'MATCH' : 'no match'})`);
+
+          allComparisons.push({
+            ...record,
+            similarity: similarity,
+            distance: 1 - similarity
+          });
+
+        } catch (embeddingError) {
+          console.warn(`⚠️ Error processing embedding for ${record.patta_id}:`, embeddingError);
+        }
+      }
+
+      // Sort by similarity (highest first)
+      allComparisons.sort((a, b) => b.similarity - a.similarity);
+
+      // Filter by name if provided
+      let filteredComparisons = allComparisons;
+      if (name) {
+        filteredComparisons = allComparisons.filter(record => 
+          record.name.toLowerCase().includes(name.toLowerCase())
+        );
+        console.log(`🔍 Filtered by name "${name}": ${filteredComparisons.length} records`);
+      }
+
+      // Apply threshold filter
+      const matches = filteredComparisons.filter(record => record.similarity >= threshold);
+
+      console.log(`🎯 Matches above ${(threshold * 100).toFixed(0)}% threshold: ${matches.length}`);
+      console.log('📊 Top 5 similarities:', allComparisons.slice(0, 5).map(r => 
+        `${r.name} (${r.patta_id}): ${(r.similarity * 100).toFixed(2)}%`
+      ));
+
+      if (matches.length === 0) {
+        const topMatch = allComparisons[0];
+        return res.json({
+          success: false,
+          message: `No matching face found above ${(threshold * 100).toFixed(0)}% similarity threshold`,
+          matches: [],
+          totalRecordsChecked: records.length,
+          topSimilarity: topMatch ? {
+            name: topMatch.name,
+            patta_id: topMatch.patta_id,
+            similarity: (topMatch.similarity * 100).toFixed(2) + '%'
+          } : null,
+          allSimilarities: allComparisons.slice(0, 5).map(r => ({
+            name: r.name,
+            patta_id: r.patta_id,
+            similarity: (r.similarity * 100).toFixed(2) + '%'
+          }))
         });
       }
 
       // Return best match with similarity score
       const bestMatch = matches[0];
-      const similarity = 1 - bestMatch.distance;
+      const similarity = bestMatch.similarity;
+
+      console.log(`✅ Best match: ${bestMatch.name} (${bestMatch.patta_id}) with ${(similarity * 100).toFixed(2)}% similarity`);
 
       res.json({
         success: true,
@@ -65,19 +167,18 @@ const faceController = {
           village: bestMatch.village,
           district: bestMatch.district,
           state: bestMatch.state,
-          photo_url: bestMatch.photo_url,
-          blockchain_token_id: bestMatch.blockchain_token_id
+          photo_url: bestMatch.photo_url
         },
-        allMatches: matches.map(match => ({
-          id: match.id,
+        matches: matches.slice(0, 3).map(match => ({
+          patta_id: match.patta_id,
           name: match.name,
-          similarity: 1 - match.distance,
-          patta_id: match.patta_id
-        }))
+          similarity: (match.similarity * 100).toFixed(1) + '%'
+        })),
+        totalRecordsChecked: records.length
       });
 
     } catch (error) {
-      console.error('Face verification error:', error);
+      console.error('💥 Face verification error:', error);
       res.status(500).json({ 
         error: 'Face verification failed',
         details: error.message 
@@ -90,25 +191,39 @@ const faceController = {
     try {
       const { recordId, faceEmbedding } = req.body;
 
+      console.log('💾 Storing face embedding for record:', recordId);
+      console.log('🧠 Embedding details:', {
+        type: typeof faceEmbedding,
+        length: faceEmbedding?.length,
+        isArray: Array.isArray(faceEmbedding)
+      });
+
       if (!recordId || !faceEmbedding) {
         return res.status(400).json({ 
           error: 'Record ID and face embedding are required' 
         });
       }
 
-      // Convert embedding to vector format
-      const embeddingVector = `[${faceEmbedding.join(',')}]`;
+      if (!Array.isArray(faceEmbedding)) {
+        return res.status(400).json({ 
+          error: 'Face embedding must be an array' 
+        });
+      }
 
+      // Store as JSON array
       const { data, error } = await supabase
         .from('records')
-        .update({ face_embedding: embeddingVector })
+        .update({ face_embedding: faceEmbedding })
         .eq('id', recordId)
         .select()
         .single();
 
       if (error) {
+        console.error('❌ Failed to store face embedding:', error);
         return res.status(400).json({ error: error.message });
       }
+
+      console.log('✅ Face embedding stored successfully for:', data.name);
 
       res.json({
         success: true,
@@ -117,7 +232,7 @@ const faceController = {
       });
 
     } catch (error) {
-      console.error('Store face embedding error:', error);
+      console.error('💥 Store face embedding error:', error);
       res.status(500).json({ 
         error: 'Failed to store face embedding',
         details: error.message 
@@ -130,52 +245,71 @@ const faceController = {
     try {
       const { faceEmbedding, threshold = 0.9, excludeRecordId } = req.body;
 
-      if (!faceEmbedding) {
-        return res.status(400).json({ error: 'Face embedding is required' });
+      if (!faceEmbedding || !Array.isArray(faceEmbedding)) {
+        return res.status(400).json({ 
+          error: 'Valid face embedding array is required' 
+        });
       }
 
-      const embeddingVector = `[${faceEmbedding.join(',')}]`;
-
-      let query = `
-        SELECT id, patta_id, name, village, district, state, photo_url,
-        (face_embedding <=> '${embeddingVector}'::vector) as distance
-        FROM records 
-        WHERE face_embedding IS NOT NULL
-      `;
+      let query = supabase
+        .from('records')
+        .select('*')
+        .not('face_embedding', 'is', null);
 
       if (excludeRecordId) {
-        query += ` AND id != '${excludeRecordId}'`;
+        query = query.neq('id', excludeRecordId);
       }
 
-      query += ` ORDER BY face_embedding <=> '${embeddingVector}'::vector LIMIT 20`;
-
-      const { data, error } = await supabase.rpc('execute_sql', { 
-        sql_query: query 
-      });
+      const { data: records, error } = await query;
 
       if (error) {
-        console.error('Similar faces query error:', error);
-        return res.status(500).json({ error: 'Database query failed' });
+        return res.status(400).json({ error: error.message });
       }
 
-      // Filter by similarity threshold
-      const similarFaces = data
-        .filter(record => (1 - record.distance) >= threshold)
-        .map(record => ({
-          id: record.id,
-          patta_id: record.patta_id,
-          name: record.name,
-          village: record.village,
-          district: record.district,
-          state: record.state,
-          photo_url: record.photo_url,
-          similarity: 1 - record.distance
-        }));
+      const similarFaces = [];
+
+      for (const record of records) {
+        try {
+          let storedEmbedding;
+          if (typeof record.face_embedding === 'string') {
+            storedEmbedding = JSON.parse(record.face_embedding);
+          } else if (Array.isArray(record.face_embedding)) {
+            storedEmbedding = record.face_embedding;
+          } else {
+            continue;
+          }
+
+          const similarity = calculateCosineSimilarity(faceEmbedding, storedEmbedding);
+          
+          if (similarity >= threshold) {
+            similarFaces.push({
+              record,
+              similarity,
+              confidence: similarity >= 0.9 ? 'high' : 'medium'
+            });
+          }
+        } catch (err) {
+          console.warn(`Error processing record ${record.id}:`, err);
+        }
+      }
+
+      // Sort by similarity (highest first)
+      similarFaces.sort((a, b) => b.similarity - a.similarity);
 
       res.json({
         success: true,
-        similarFaces: similarFaces,
-        count: similarFaces.length
+        similarFaces: similarFaces.map(sf => ({
+          record: {
+            id: sf.record.id,
+            patta_id: sf.record.patta_id,
+            name: sf.record.name,
+            village: sf.record.village,
+            district: sf.record.district
+          },
+          similarity: sf.similarity,
+          confidence: sf.confidence
+        })),
+        totalFound: similarFaces.length
       });
 
     } catch (error) {
@@ -190,36 +324,42 @@ const faceController = {
   // Get face recognition statistics
   getFaceStats: async (req, res) => {
     try {
-      // Count records with face embeddings
-      const { data: withFaces, error: withFacesError } = await supabase
+      // Get total records
+      const { count: totalRecords, error: totalError } = await supabase
         .from('records')
-        .select('id', { count: 'exact' })
-        .not('face_embedding', 'is', null);
+        .select('*', { count: 'exact', head: true });
 
-      // Count total records
-      const { data: totalRecords, error: totalError } = await supabase
-        .from('records')
-        .select('id', { count: 'exact' });
-
-      if (withFacesError || totalError) {
-        return res.status(500).json({ error: 'Failed to get statistics' });
+      if (totalError) {
+        throw totalError;
       }
 
-      const withFacesCount = withFaces?.length || 0;
-      const totalCount = totalRecords?.length || 0;
-      const withoutFacesCount = totalCount - withFacesCount;
+      // Get records with face embeddings
+      const { count: recordsWithFaces, error: facesError } = await supabase
+        .from('records')
+        .select('*', { count: 'exact', head: true })
+        .not('face_embedding', 'is', null);
+
+      if (facesError) {
+        throw facesError;
+      }
+
+      // Calculate percentage
+      const facePercentage = totalRecords > 0 ? (recordsWithFaces / totalRecords * 100).toFixed(1) : 0;
 
       res.json({
-        totalRecords: totalCount,
-        recordsWithFaces: withFacesCount,
-        recordsWithoutFaces: withoutFacesCount,
-        faceRecognitionCoverage: totalCount > 0 ? (withFacesCount / totalCount * 100).toFixed(2) : 0
+        success: true,
+        stats: {
+          totalRecords: totalRecords || 0,
+          recordsWithFaces: recordsWithFaces || 0,
+          facePercentage: parseFloat(facePercentage),
+          lastUpdated: new Date().toISOString()
+        }
       });
 
     } catch (error) {
       console.error('Get face stats error:', error);
       res.status(500).json({ 
-        error: 'Failed to get face recognition statistics',
+        error: 'Failed to get face statistics',
         details: error.message 
       });
     }

@@ -51,31 +51,59 @@ const FaceCapture = ({ onCapture, onError, className = '' }) => {
   }
 
   const startFaceDetection = async () => {
-    if (!videoRef.current || !canvasRef.current) return
-
-    const detect = async () => {
-      if (!isStreaming || !videoRef.current) return
-
-      try {
-        const detections = await faceApiUtils.detectFace(videoRef.current)
-        setDetections(detections)
-        
-        // Draw detections on canvas
-        if (canvasRef.current) {
-          faceApiUtils.drawDetections(canvasRef.current, detections)
-        }
-      } catch (err) {
-        // Ignore detection errors during streaming
-        console.debug('Detection error:', err.message)
-      }
-
-      // Continue detection loop
-      if (isStreaming) {
-        requestAnimationFrame(detect)
-      }
+    console.log('Starting face detection...')
+    
+    if (!videoRef.current || !canvasRef.current) {
+      console.log('Video or canvas ref not available')
+      return
     }
 
-    detect()
+    // Wait for video to be ready
+    const waitForVideo = () => {
+      if (videoRef.current.videoWidth === 0 || videoRef.current.videoHeight === 0) {
+        console.log('Waiting for video dimensions...')
+        setTimeout(waitForVideo, 100)
+        return
+      }
+      console.log(`Video ready: ${videoRef.current.videoWidth}x${videoRef.current.videoHeight}`)
+      startDetectionLoop()
+    }
+
+    const startDetectionLoop = () => {
+      let detectionInterval
+
+      const detect = async () => {
+        if (!isStreaming || !videoRef.current || videoRef.current.readyState < 2) {
+          console.log('Stopping detection - streaming stopped or video not ready')
+          if (detectionInterval) clearInterval(detectionInterval)
+          return
+        }
+
+        try {
+          console.log('🔍 Running face detection...')
+          // Use fallback method that includes mock detection for testing
+          const detections = await faceApiUtils.detectFaceWithFallback(videoRef.current)
+          console.log('🎯 Detection result:', detections)
+          setDetections(detections)
+          
+          // Always try to draw (including clearing when no detections)
+          if (canvasRef.current) {
+            faceApiUtils.drawDetections(canvasRef.current, detections)
+          }
+        } catch (err) {
+          console.error('💥 Detection error:', err)
+          setDetections([]) // Clear detections on error
+        }
+      }
+
+      // Run detection every 500ms (2fps) for better performance
+      detectionInterval = setInterval(detect, 500)
+      
+      // Run first detection immediately
+      detect()
+    }
+
+    waitForVideo()
   }
 
   const captureImage = async () => {
@@ -104,7 +132,8 @@ const FaceCapture = ({ onCapture, onError, className = '' }) => {
       if (onCapture) {
         onCapture({
           imageBlob,
-          faceDescriptor: descriptorArray,
+          descriptor: descriptorArray, // Changed from faceDescriptor to descriptor for consistency
+          faceDescriptor: descriptorArray, // Keep both for backward compatibility
           detectionCount: detections?.length || 0
         })
       }
@@ -142,8 +171,12 @@ const FaceCapture = ({ onCapture, onError, className = '' }) => {
         {/* Canvas Overlay for Face Detection */}
         <canvas
           ref={canvasRef}
-          className="face-overlay absolute top-0 left-0 w-full h-full"
-          style={{ display: isStreaming ? 'block' : 'none' }}
+          className="face-overlay absolute top-0 left-0 pointer-events-none"
+          style={{ 
+            display: isStreaming ? 'block' : 'none',
+            width: '100%',
+            height: '100%'
+          }}
         />
 
         {/* Placeholder when camera is off */}
@@ -160,13 +193,17 @@ const FaceCapture = ({ onCapture, onError, className = '' }) => {
 
         {/* Face Detection Status */}
         {isStreaming && (
-          <div className="absolute top-2 right-2">
+          <div className="absolute top-2 right-2 space-y-1">
             <div className={`px-2 py-1 rounded-full text-xs font-medium ${
               hasValidFace 
                 ? 'bg-green-100 text-green-800' 
                 : 'bg-yellow-100 text-yellow-800'
             }`}>
-              {hasValidFace ? '✓ Face Detected' : '⚠ No Face'}
+              {hasValidFace ? `✓ ${detections.length} Face(s)` : '⚠ No Face'}
+            </div>
+            {/* Debug info */}
+            <div className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded">
+              {videoRef.current ? `${videoRef.current.videoWidth}x${videoRef.current.videoHeight}` : 'No video'}
             </div>
           </div>
         )}
@@ -193,13 +230,19 @@ const FaceCapture = ({ onCapture, onError, className = '' }) => {
             </button>
             <button
               onClick={captureImage}
-              disabled={!hasValidFace || isCapturing}
-              className="btn btn-success"
+              disabled={isCapturing}
+              className={`px-6 py-3 rounded-lg font-semibold ${
+                hasValidFace 
+                  ? 'bg-green-500 text-white hover:bg-green-600' 
+                  : 'bg-yellow-500 text-white hover:bg-yellow-600'
+              }`}
             >
               {isCapturing ? (
-                <LoadingSpinner size="sm" text="" />
+                <LoadingSpinner size="sm" text="Capturing..." />
+              ) : hasValidFace ? (
+                '📸 Capture Face'
               ) : (
-                'Capture Face'
+                '📸 Capture Anyway'
               )}
             </button>
           </>
