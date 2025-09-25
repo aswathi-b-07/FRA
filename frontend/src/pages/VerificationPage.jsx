@@ -12,6 +12,16 @@ const VerificationPage = () => {
   const [error, setError] = useState('')
 
   const handleFaceCapture = (data) => {
+    console.log('🎯 Face capture data received:', {
+      hasImageBlob: !!data.imageBlob,
+      hasDescriptor: !!data.descriptor,
+      hasFaceDescriptor: !!data.faceDescriptor,
+      descriptorLength: data.descriptor?.length || data.faceDescriptor?.length,
+      descriptorType: typeof (data.descriptor || data.faceDescriptor),
+      detectionCount: data.detectionCount,
+      allKeys: Object.keys(data)
+    })
+    
     setCapturedData(data)
     setVerificationStep('verify')
   }
@@ -21,27 +31,68 @@ const VerificationPage = () => {
   }
 
   const performVerification = async () => {
-    if (!capturedData?.faceDescriptor) {
-      setError('No face data captured')
+    // Check for face descriptor in multiple possible fields
+    const descriptor = capturedData?.descriptor || capturedData?.faceDescriptor
+    
+    if (!descriptor) {
+      console.error('❌ No face data found in captured data:', capturedData)
+      setError('No face data captured. Please capture your face again.')
       return
     }
+    
+    console.log('✅ Face descriptor found:', {
+      type: typeof descriptor,
+      length: descriptor?.length,
+      isArray: Array.isArray(descriptor)
+    })
 
     try {
       setLoading(true)
       setError('')
 
+      console.log('🔍 Starting face verification...')
+      console.log('Face descriptor length:', descriptor.length)
+      console.log('Search name:', searchName.trim() || 'All records')
+
+      // Convert Float32Array to regular array if needed
+      const faceEmbedding = Array.isArray(descriptor) 
+        ? descriptor 
+        : Array.from(descriptor);
+
       const result = await apiService.face.verify(
-        capturedData.faceDescriptor,
+        faceEmbedding,
         searchName.trim() || null,
-        0.8 // similarity threshold
+        0.5 // Lower threshold for better matching (50% instead of 60%)
       )
 
+      console.log('🎯 Verification result:', result)
       setVerificationResults(result)
       setVerificationStep('results')
 
     } catch (err) {
-      console.error('Verification error:', err)
-      setError('Verification failed. Please try again.')
+      console.error('💥 Verification error:', err)
+      console.error('Error details:', {
+        message: err.message,
+        response: err.response,
+        responseData: err.response?.data,
+        status: err.response?.status,
+        config: err.config
+      })
+      
+      let errorMessage = 'Verification failed: '
+      
+      if (err.response) {
+        // Server responded with error
+        errorMessage += err.response.data?.error || err.response.data?.message || `Server error (${err.response.status})`
+      } else if (err.request) {
+        // Request was made but no response
+        errorMessage += 'Network error - please check your connection and ensure the backend server is running'
+      } else {
+        // Something else happened
+        errorMessage += err.message || 'An unexpected error occurred'
+      }
+      
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -250,11 +301,36 @@ const VerificationPage = () => {
                     {verificationResults.message}
                   </p>
 
-                  {verificationResults.success && verificationResults.similarity && (
-                    <p className="mt-1 text-sm text-gray-500">
-                      Similarity Score: {(verificationResults.similarity * 100).toFixed(1)}%
-                    </p>
-                  )}
+                  <div className="mt-3 space-y-2">
+                    {verificationResults.similarity !== undefined && (
+                      <p className="text-sm text-gray-500">
+                        Similarity Score: <span className="font-semibold">
+                          {typeof verificationResults.similarity === 'number' 
+                            ? (verificationResults.similarity * 100).toFixed(1) + '%'
+                            : verificationResults.similarity
+                          }
+                        </span>
+                      </p>
+                    )}
+                    {verificationResults.totalRecordsChecked && (
+                      <p className="text-xs text-gray-400">
+                        Checked against {verificationResults.totalRecordsChecked} records with face data
+                      </p>
+                    )}
+                    {!verificationResults.success && verificationResults.allSimilarities && verificationResults.allSimilarities.length > 0 && (
+                      <div className="mt-4">
+                        <p className="text-xs text-gray-500 mb-2">Top similarities found:</p>
+                        <div className="space-y-1">
+                          {verificationResults.allSimilarities.slice(0, 3).map((sim, idx) => (
+                            <div key={idx} className="text-xs text-gray-400 flex justify-between">
+                              <span>{sim.name} ({sim.patta_id})</span>
+                              <span>{sim.similarity}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -313,22 +389,22 @@ const VerificationPage = () => {
             )}
 
             {/* Alternative Matches */}
-            {verificationResults.allMatches && verificationResults.allMatches.length > 1 && (
+            {verificationResults.matches && verificationResults.matches.length > 1 && (
               <div className="card">
                 <div className="card-header">
                   <h4 className="text-lg font-medium text-gray-900">Other Potential Matches</h4>
                 </div>
                 <div className="card-body">
                   <div className="space-y-3">
-                    {verificationResults.allMatches.slice(1, 4).map((match, index) => (
-                      <div key={match.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    {verificationResults.matches.slice(1, 4).map((match, index) => (
+                      <div key={match.patta_id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                         <div>
                           <p className="text-sm font-medium text-gray-900">{match.name}</p>
                           <p className="text-xs text-gray-600">Patta ID: {match.patta_id}</p>
                         </div>
                         <div className="text-right">
                           <p className="text-sm text-gray-500">
-                            {(match.similarity * 100).toFixed(1)}% match
+                            {match.similarity}
                           </p>
                         </div>
                       </div>
