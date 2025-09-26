@@ -14,7 +14,6 @@ This is a comprehensive full-stack web application for monitoring Forest Rights 
 - **Blockchain Verification**: NFT-based land title verification on Avalanche testnet
 - **AI Services**: Policy recommendations, chatbots, conflict resolution
 - **Fraud Detection**: ML-powered anomaly detection system
-- **Gram Sabha Support**: AI-assisted meeting management
 
 ### 🛠 Technology Stack
 
@@ -157,7 +156,6 @@ npm run dev
 ### AI Services
 - `POST /api/ai/policy-recommendations` - Generate policy recommendations
 - `POST /api/ai/conflict-analysis` - Analyze conflicts
-- `POST /api/ai/gram-sabha-assistant` - Gram Sabha AI assistant
 - `POST /api/ai/fraud-detection` - Detect fraud and anomalies
 - `GET /api/ai/insights` - Get AI insights
 
@@ -197,7 +195,6 @@ npm run dev
 ### 6. AI-Powered Services
 - `/policy` - Generate policy recommendations using AI
 - `/conflicts` - Analyze land disputes and get resolution suggestions
-- `/gram-sabha` - AI assistant for Gram Sabha meetings
 - `/fraud-detection` - Detect fraudulent claims and anomalies
 
 ## 🔧 Configuration Options

@@ -61,20 +61,7 @@ CREATE TABLE IF NOT EXISTS fraud_alerts (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Create gram_sabha_sessions table
-CREATE TABLE IF NOT EXISTS gram_sabha_sessions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    village VARCHAR(255),
-    district VARCHAR(255),
-    state VARCHAR(100),
-    session_date DATE,
-    agenda JSONB,
-    participants_count INTEGER,
-    decisions JSONB,
-    ai_summary TEXT,
-    created_by UUID REFERENCES auth.users(id),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+-- (Removed) gram_sabha_sessions table has been deprecated
 
 -- Create policy_recommendations table
 CREATE TABLE IF NOT EXISTS policy_recommendations (

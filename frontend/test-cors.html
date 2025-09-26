@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CORS Test</title>
+</head>
+<body>
+    <h1>CORS Test</h1>
+    <button onclick="testHealth()">Test Health Endpoint</button>
+    <button onclick="testFaceStats()">Test Face Stats</button>
+    <button onclick="testBlockchainStats()">Test Blockchain Stats</button>
+    
+    <div id="results"></div>
+
+    <script>
+        const API_BASE = 'http://localhost:3001/api';
+        
+        async function testEndpoint(url, name) {
+            const resultsDiv = document.getElementById('results');
+            try {
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    resultsDiv.innerHTML += `<p style="color: green;">✅ ${name}: SUCCESS</p>`;
+                    console.log(`${name} response:`, data);
+                } else {
+                    resultsDiv.innerHTML += `<p style="color: red;">❌ ${name}: HTTP ${response.status}</p>`;
+                }
+            } catch (error) {
+                resultsDiv.innerHTML += `<p style="color: red;">❌ ${name}: ${error.message}</p>`;
+                console.error(`${name} error:`, error);
+            }
+        }
+        
+        async function testHealth() {
+            await testEndpoint(`${API_BASE}/health`, 'Health Endpoint');
+        }
+        
+        async function testFaceStats() {
+            await testEndpoint(`${API_BASE}/face/stats`, 'Face Stats');
+        }
+        
+        async function testBlockchainStats() {
+            await testEndpoint(`${API_BASE}/blockchain/stats`, 'Blockchain Stats');
+        }
+    </script>
+</body>
+</html>

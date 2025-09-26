@@ -88,6 +88,20 @@ export const dbService = {
       return { data, error }
     },
 
+    // Get exact total count of records (with optional filters)
+    getCount: async (filters = {}) => {
+      let query = supabase
+        .from('records')
+        .select('id', { count: 'exact', head: true })
+
+      if (filters.state) query = query.eq('state', filters.state)
+      if (filters.district) query = query.eq('district', filters.district)
+      if (filters.village) query = query.eq('village', filters.village)
+
+      const { count, error } = await query
+      return { count: count || 0, error }
+    },
+
     getById: async (id) => {
       const { data, error } = await supabase
         .from('records')
@@ -187,26 +201,6 @@ export const dbService = {
         .from('fraud_alerts')
         .select('*')
         .order('created_at', { ascending: false })
-      return { data, error }
-    }
-  },
-
-  // Gram Sabha sessions operations
-  gramSabhaSessions: {
-    getAll: async () => {
-      const { data, error } = await supabase
-        .from('gram_sabha_sessions')
-        .select('*')
-        .order('created_at', { ascending: false })
-      return { data, error }
-    },
-
-    create: async (session) => {
-      const { data, error } = await supabase
-        .from('gram_sabha_sessions')
-        .insert([session])
-        .select()
-        .single()
       return { data, error }
     }
   }

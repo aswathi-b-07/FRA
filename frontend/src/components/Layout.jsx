@@ -85,7 +85,6 @@ const Layout = ({ children }) => {
     { name: 'Policy Recommendations', href: '/policy', icon: CogIcon },
     { name: 'Blockchain Verification', href: '/blockchain', icon: ShieldIcon },
     { name: 'Conflict Resolution', href: '/conflicts', icon: ExclamationIcon },
-    { name: 'Gram Sabha Assistant', href: '/gram-sabha', icon: UserIcon },
     { name: 'Fraud Detection', href: '/fraud-detection', icon: ExclamationIcon },
   ]
 

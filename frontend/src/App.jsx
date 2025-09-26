@@ -17,7 +17,6 @@ import VerificationPage from './pages/VerificationPage'
 import PolicyRecommendationsPage from './pages/PolicyRecommendationsPage'
 import BlockchainVerificationPage from './pages/BlockchainVerificationPage'
 import ConflictResolutionPage from './pages/ConflictResolutionPage'
-import GramSabhaPage from './pages/GramSabhaPage'
 import FraudDetectionPage from './pages/FraudDetectionPage'
 import MapViewPage from './pages/MapViewPage'
 
@@ -86,7 +85,6 @@ function App() {
                       <Route path="/policy" element={<PolicyRecommendationsPage />} />
                       <Route path="/blockchain" element={<BlockchainVerificationPage />} />
                       <Route path="/conflicts" element={<ConflictResolutionPage />} />
-                      <Route path="/gram-sabha" element={<GramSabhaPage />} />
                       <Route path="/fraud-detection" element={<FraudDetectionPage />} />
                       <Route path="/map" element={<MapViewPage />} />
                       <Route path="*" element={<Navigate to="/dashboard" replace />} />

@@ -23,8 +23,14 @@ const DashboardPage = () => {
     try {
       setLoading(true)
       
-      // Load basic records stats
-      const { data: records, error: recordsError } = await dbService.records.getAll({ limit: 5 })
+      // Load total count and recent records
+      const [countResult, recentResult] = await Promise.all([
+        dbService.records.getCount().catch(() => ({ count: 0, error: null })),
+        dbService.records.getAll({ limit: 5 })
+      ])
+      const { count, error: countError } = countResult
+      if (countError) throw countError
+      const { data: records, error: recordsError } = recentResult
       if (recordsError) throw recordsError
 
       // Load additional stats from API
@@ -35,7 +41,7 @@ const DashboardPage = () => {
       ])
 
       setStats({
-        totalRecords: records?.length || 0,
+        totalRecords: typeof count === 'number' ? count : (records?.length || 0),
         recordsWithFaces: faceStats.recordsWithFaces || 0,
         recordsWithNFTs: blockchainStats.recordsWithNFTs || 0,
         fraudAlerts: fraudAlerts.data?.length || 0,

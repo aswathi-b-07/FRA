@@ -125,7 +125,6 @@ const AddNewRecordPage = () => {
           lng: parseFloat(formData.coordinates.lng)
         } : null,
         details_json: formData.detailsJson,
-        face_embedding: faceData?.faceDescriptor || null,
         verification_status: 'pending'
       }
 

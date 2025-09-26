@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, LayersControl } from 'react-leaflet'
 import { apiService } from '../services/apiService'
+import { dbService } from '../services/supabaseService'
 import LoadingSpinner from '../components/LoadingSpinner'
 import 'leaflet/dist/leaflet.css'
 import L from 'leaflet'
@@ -54,30 +55,29 @@ const MapViewPage = () => {
   const loadMapData = async () => {
     try {
       setLoading(true)
-      const params = {}
-      if (selectedState) params.state = selectedState
-      if (selectedDistrict) params.district = selectedDistrict
+      // Load records directly from Supabase for reliability
+      const filters = {}
+      if (selectedState) filters.state = selectedState
+      if (selectedDistrict) filters.district = selectedDistrict
 
-      const result = await apiService.map.getFRAreas(params)
-      
-      if (result.features) {
-        const recordsData = result.features.map(feature => ({
-          id: feature.properties.id,
-          name: feature.properties.name,
-          pattaId: feature.properties.pattaId,
-          village: feature.properties.village,
-          district: feature.properties.district,
-          state: feature.properties.state,
-          landArea: feature.properties.landArea,
-          landType: feature.properties.landType,
-          coordinates: {
-            lat: feature.geometry.coordinates[1],
-            lng: feature.geometry.coordinates[0]
-          },
-          verification_status: 'verified' // Mock status
+      const { data, error } = await dbService.records.getAll(filters)
+      if (error) throw error
+
+      const recordsData = (data || [])
+        .filter(r => r.coordinates && typeof r.coordinates.lat === 'number' && typeof r.coordinates.lng === 'number')
+        .map(r => ({
+          id: r.id,
+          name: r.name,
+          pattaId: r.patta_id,
+          village: r.village,
+          district: r.district,
+          state: r.state,
+          landArea: r.land_area,
+          landType: r.land_type,
+          coordinates: { lat: r.coordinates.lat, lng: r.coordinates.lng },
+          verification_status: r.verification_status || 'pending'
         }))
-        setRecords(recordsData)
-      }
+      setRecords(recordsData)
 
       // Update map center if state is selected
       if (selectedState) {

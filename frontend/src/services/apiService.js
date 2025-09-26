@@ -179,11 +179,6 @@ export const apiService = {
       return response.data
     },
 
-    gramSabhaAssistant: async (params) => {
-      const response = await apiClient.post('/ai/gram-sabha-assistant', params)
-      return response.data
-    },
-
     detectFraud: async (recordData, checkType = 'comprehensive') => {
       const response = await apiClient.post('/ai/fraud-detection', {
         recordData,

@@ -5,11 +5,27 @@ import LoadingSpinner from './LoadingSpinner'
 const FaceCapture = ({ onCapture, onError, className = '' }) => {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
+  const offscreenCanvasRef = useRef(null)
   const [isStreaming, setIsStreaming] = useState(false)
   const [isCapturing, setIsCapturing] = useState(false)
   const [error, setError] = useState('')
   const [stream, setStream] = useState(null)
   const [detections, setDetections] = useState(null)
+  const [opencvReady, setOpenCVReady] = useState(false)
+  const faceCascadeRef = useRef(null)
+
+  // OpenCV loop & resources
+  const cvCapRef = useRef(null)
+  const cvSrcRef = useRef(null)
+  const cvDstRef = useRef(null)
+  const cvGrayRef = useRef(null)
+  const cvFacesRef = useRef(null)
+  const opencvLoopActiveRef = useRef(false)
+  const detectionStartTimestampRef = useRef(null)
+  const captureScheduledRef = useRef(false)
+
+  const OPENCV_SCRIPT_URL = 'https://docs.opencv.org/4.x/opencv.js'
+  const HAAR_CASCADE_URL = 'https://raw.githubusercontent.com/opencv/opencv/4.x/data/haarcascades/haarcascade_frontalface_default.xml'
 
   useEffect(() => {
     return () => {
@@ -25,6 +41,9 @@ const FaceCapture = ({ onCapture, onError, className = '' }) => {
       const videoStream = await faceApiUtils.startVideoStream(videoRef.current)
       setStream(videoStream)
       
+      // Attempt to load OpenCV asynchronously (face-api.js remains as fallback)
+      loadOpenCV().catch(() => {})
+
       // Start face detection loop
       startFaceDetection()
     } catch (err) {
@@ -42,6 +61,11 @@ const FaceCapture = ({ onCapture, onError, className = '' }) => {
     }
     setIsStreaming(false)
     setDetections(null)
+    detectionStartTimestampRef.current = null
+    captureScheduledRef.current = false
+    // Stop OpenCV loop and clean mats
+    opencvLoopActiveRef.current = false
+    cleanupOpenCVObjects()
     
     // Clear canvas
     if (canvasRef.current) {
@@ -53,23 +77,44 @@ const FaceCapture = ({ onCapture, onError, className = '' }) => {
   const startFaceDetection = async () => {
     if (!videoRef.current || !canvasRef.current) return
 
+    if (opencvReady && faceCascadeRef.current && window.cv) {
+      try {
+        initializeOpenCVObjects(videoRef.current)
+        opencvLoopActiveRef.current = true
+        processVideoOpenCV()
+        return
+      } catch (e) {
+        console.warn('Falling back to face-api.js detection', e)
+      }
+    }
+
+    // Fallback to face-api.js loop
     const detect = async () => {
       if (!isStreaming || !videoRef.current) return
 
       try {
-        const detections = await faceApiUtils.detectFace(videoRef.current)
-        setDetections(detections)
-        
-        // Draw detections on canvas
+        const faDetections = await faceApiUtils.detectFace(videoRef.current)
+        setDetections(faDetections)
         if (canvasRef.current) {
-          faceApiUtils.drawDetections(canvasRef.current, detections)
+          faceApiUtils.drawDetections(canvasRef.current, faDetections)
+        }
+
+        // Auto-capture after 5 seconds of continuous detection
+        if (faDetections && faDetections.length > 0) {
+          if (!detectionStartTimestampRef.current) {
+            detectionStartTimestampRef.current = Date.now()
+          } else if (!captureScheduledRef.current && Date.now() - detectionStartTimestampRef.current >= 5000) {
+            captureScheduledRef.current = true
+            await captureImage()
+          }
+        } else {
+          detectionStartTimestampRef.current = null
         }
       } catch (err) {
         // Ignore detection errors during streaming
         console.debug('Detection error:', err.message)
       }
 
-      // Continue detection loop
       if (isStreaming) {
         requestAnimationFrame(detect)
       }
@@ -119,6 +164,132 @@ const FaceCapture = ({ onCapture, onError, className = '' }) => {
   }
 
   const hasValidFace = detections && detections.length > 0
+
+  // ---- OpenCV Integration ----
+  const loadOpenCV = async () => {
+    try {
+      if (window.cv && window.cv.FS_createDataFile) {
+        // Already loaded
+      } else {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script')
+          script.src = OPENCV_SCRIPT_URL
+          script.async = true
+          script.onload = () => {
+            if (window.cv && window.cv['onRuntimeInitialized']) {
+              const prev = window.cv['onRuntimeInitialized']
+              window.cv['onRuntimeInitialized'] = () => {
+                prev && prev()
+                resolve()
+              }
+            } else if (window.cv) {
+              window.cv['onRuntimeInitialized'] = resolve
+            } else {
+              // Fallback small delay
+              setTimeout(resolve, 500)
+            }
+          }
+          script.onerror = reject
+          document.body.appendChild(script)
+        })
+      }
+
+      // Load Haar cascade into OpenCV FS
+      const response = await fetch(HAAR_CASCADE_URL)
+      const data = await response.arrayBuffer()
+      const data8 = new Uint8Array(data)
+      if (!window.cv.FS_createDataFile) return
+      try {
+        // If file exists, this will throw; ignore
+        window.cv.FS_createDataFile('/', 'haarcascade_frontalface_default.xml', data8, true, false, false)
+      } catch (_) {}
+
+      const classifier = new window.cv.CascadeClassifier()
+      classifier.load('haarcascade_frontalface_default.xml')
+      faceCascadeRef.current = classifier
+      setOpenCVReady(true)
+    } catch (e) {
+      console.warn('OpenCV failed to initialize, falling back to face-api.js', e)
+      setOpenCVReady(false)
+    }
+  }
+
+  const initializeOpenCVObjects = (videoEl) => {
+    const cv = window.cv
+    const vw = videoEl.videoWidth
+    const vh = videoEl.videoHeight
+    cvSrcRef.current = new cv.Mat(vh, vw, cv.CV_8UC4)
+    cvDstRef.current = new cv.Mat(vh, vw, cv.CV_8UC4)
+    cvGrayRef.current = new cv.Mat()
+    cvFacesRef.current = new cv.RectVector()
+    cvCapRef.current = new cv.VideoCapture(videoEl)
+  }
+
+  const cleanupOpenCVObjects = () => {
+    const mats = [cvSrcRef, cvDstRef, cvGrayRef, cvFacesRef]
+    mats.forEach(ref => {
+      try { ref.current && ref.current.delete && ref.current.delete() } catch (_) {}
+      ref.current = null
+    })
+    cvCapRef.current = null
+  }
+
+  const processVideoOpenCV = () => {
+    const cv = window.cv
+    const FPS = 30
+    try {
+      if (!isStreaming || !opencvLoopActiveRef.current || !cvCapRef.current) {
+        cleanupOpenCVObjects()
+        return
+      }
+      const begin = Date.now()
+
+      // Read frame
+      cvCapRef.current.read(cvSrcRef.current)
+      cvSrcRef.current.copyTo(cvDstRef.current)
+      cv.cvtColor(cvDstRef.current, cvGrayRef.current, cv.COLOR_RGBA2GRAY, 0)
+
+      // Detect faces
+      faceCascadeRef.current.detectMultiScale(cvGrayRef.current, cvFacesRef.current, 1.1, 3, 0)
+
+      // Draw rectangles
+      for (let i = 0; i < cvFacesRef.current.size(); ++i) {
+        const face = cvFacesRef.current.get(i)
+        const p1 = new cv.Point(face.x, face.y)
+        const p2 = new cv.Point(face.x + face.width, face.y + face.height)
+        cv.rectangle(cvDstRef.current, p1, p2, [34, 197, 94, 255])
+      }
+
+      // Show on overlay canvas
+      if (canvasRef.current) {
+        cv.imshow(canvasRef.current, cvDstRef.current)
+      }
+
+      // Update detection state
+      const detectedCount = cvFacesRef.current.size()
+      setDetections(new Array(detectedCount).fill(0))
+
+      // Auto-capture after 5 seconds of continuous detection
+      if (detectedCount > 0) {
+        if (!detectionStartTimestampRef.current) {
+          detectionStartTimestampRef.current = Date.now()
+        } else if (!captureScheduledRef.current && Date.now() - detectionStartTimestampRef.current >= 5000) {
+          captureScheduledRef.current = true
+          captureImage().catch(() => {})
+        }
+      } else {
+        detectionStartTimestampRef.current = null
+      }
+
+      // Schedule next frame
+      const delay = Math.max(0, (1000 / FPS) - (Date.now() - begin))
+      setTimeout(processVideoOpenCV, delay)
+    } catch (err) {
+      console.warn('OpenCV processing error', err)
+      // Try again shortly
+      setTimeout(processVideoOpenCV, 100)
+    }
+  }
 
   return (
     <div className={`face-capture-container ${className}`}>

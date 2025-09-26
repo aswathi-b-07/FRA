@@ -9,9 +9,8 @@ A comprehensive full-stack web application for monitoring Forest Rights Act (FRA
 - **Face Recognition**: Biometric verification using face-api.js
 - **WebGIS Integration**: Interactive mapping with Leaflet.js
 - **Blockchain Verification**: NFT-based land title verification on Avalanche
-- **AI Services**: Policy recommendations, chatbots, conflict resolution
+- **AI Services**: Policy recommendations, conflict resolution
 - **Fraud Detection**: ML-powered anomaly detection
-- **Gram Sabha Support**: AI-assisted meeting management
 
 ## Tech Stack
 

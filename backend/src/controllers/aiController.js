@@ -131,57 +131,6 @@ const aiController = {
     }
   },
 
-  // Gram Sabha AI assistant
-  gramSabhaAssistant: async (req, res) => {
-    try {
-      const { 
-        query, 
-        context, 
-        sessionId, 
-        village, 
-        district, 
-        state 
-      } = req.body;
-
-      if (!query) {
-        return res.status(400).json({ error: 'Query is required' });
-      }
-
-      // Get relevant context from previous sessions if sessionId provided
-      let sessionContext = null;
-      if (sessionId) {
-        const { data: session } = await supabase
-          .from('gram_sabha_sessions')
-          .select('*')
-          .eq('id', sessionId)
-          .single();
-        sessionContext = session;
-      }
-
-      const response = await openaiService.gramSabhaAssistant({
-        query,
-        context,
-        sessionContext,
-        village,
-        district,
-        state
-      });
-
-      res.json({
-        success: true,
-        response: response.answer,
-        suggestions: response.suggestions,
-        relatedSchemes: response.relatedSchemes
-      });
-
-    } catch (error) {
-      console.error('Gram Sabha assistant error:', error);
-      res.status(500).json({ 
-        error: 'Failed to get AI assistance',
-        details: error.message 
-      });
-    }
-  },
 
   // Fraud detection analysis
   detectFraud: async (req, res) => {
