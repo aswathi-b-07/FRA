@@ -12,9 +12,12 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.38.0",
     "@tensorflow/tfjs": "^4.22.0",
-    "@vladmandic/face-api": "^1.7.15",
     "axios": "^1.5.0",
+<<<<<<< HEAD
     "crypto-browserify": "^3.12.1",
+=======
+    "face-api.js": "^0.22.2",
+>>>>>>> 507e77db4d917ec23b4bb11faf88ddc9ec1a6e20
     "leaflet": "^1.9.4",
     "openai": "^4.11.1",
     "react": "^18.2.0",

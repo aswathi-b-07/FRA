@@ -47,13 +47,37 @@ const RecordDetailsModal = ({ record, onClose }) => {
       <div ref={modalRef} className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <div>
-            <h3 className="text-xl font-semibold text-gray-900">
-              Record Details - {record.name}
-            </h3>
-            <p className="text-sm text-gray-600">
-              Patta ID: {record.patta_id}
-            </p>
+          <div className="flex items-center space-x-4">
+            {/* Profile Photo */}
+            {record.photo_url ? (
+              <img
+                src={record.photo_url}
+                alt={record.name}
+                className="w-16 h-16 rounded-full object-cover border-2 border-gray-200"
+                onError={(e) => {
+                  e.target.style.display = 'none'
+                  e.target.nextSibling.style.display = 'flex'
+                }}
+              />
+            ) : null}
+            <div 
+              className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center text-gray-500 text-xl font-semibold border-2 border-gray-200"
+              style={{ display: record.photo_url ? 'none' : 'flex' }}
+            >
+              {record.name.charAt(0)}
+            </div>
+            
+            <div>
+              <h3 className="text-xl font-semibold text-gray-900">
+                Record Details - {record.name}
+              </h3>
+              <p className="text-sm text-gray-600">
+                Patta ID: {record.patta_id}
+              </p>
+              {record.father_name && (
+                <p className="text-sm text-gray-500">S/o {record.father_name}</p>
+              )}
+            </div>
           </div>
           <button
             onClick={onClose}

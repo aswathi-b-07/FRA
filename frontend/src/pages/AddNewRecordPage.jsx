@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { dbService } from '../services/supabaseService'
+import { dbService, supabase } from '../services/supabaseService'
 import { apiService } from '../services/apiService'
+import { useAuth } from '../contexts/AuthContext'
 import FaceCapture from '../components/FaceCapture'
 import LoadingSpinner from '../components/LoadingSpinner'
 
 const AddNewRecordPage = () => {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const { user } = useAuth()
   
   const [formData, setFormData] = useState({
     pattaId: '',
@@ -109,6 +111,65 @@ const AddNewRecordPage = () => {
       setError('')
       setSuccess('')
 
+      console.log('🚀 Starting record creation...')
+      console.log('Form data:', formData)
+      console.log('Face data:', faceData)
+
+      // Upload face image to Supabase storage
+      let photoUrl = null
+      if (faceData?.imageBlob) {
+        try {
+          console.log('📷 Uploading face image to Supabase storage...')
+          const fileName = `face_${formData.pattaId}_${Date.now()}.jpg`
+          
+          // Upload to Supabase storage
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('face-images')
+            .upload(fileName, faceData.imageBlob, {
+              contentType: 'image/jpeg',
+              upsert: false
+            })
+
+          if (uploadError) {
+            console.warn('❌ Image upload failed:', uploadError)
+            // Fallback to base64
+            photoUrl = await new Promise((resolve) => {
+              const reader = new FileReader()
+              reader.onload = () => resolve(reader.result)
+              reader.readAsDataURL(faceData.imageBlob)
+            })
+            console.log('📷 Using base64 fallback for image')
+          } else {
+            // Get public URL
+            const { data: { publicUrl } } = supabase.storage
+              .from('face-images')
+              .getPublicUrl(fileName)
+            photoUrl = publicUrl
+            console.log('✅ Image uploaded to Supabase:', photoUrl)
+          }
+        } catch (imageError) {
+          console.warn('Image upload error:', imageError)
+          // Fallback to base64
+          try {
+            photoUrl = await new Promise((resolve) => {
+              const reader = new FileReader()
+              reader.onload = () => resolve(reader.result)
+              reader.readAsDataURL(faceData.imageBlob)
+            })
+            console.log('📷 Using base64 fallback after error')
+          } catch (base64Error) {
+            console.error('Both upload and base64 failed:', base64Error)
+          }
+        }
+      }
+
+      // Check authentication
+      if (!user) {
+        throw new Error('You must be logged in to create records')
+      }
+
+      console.log('👤 Creating record as user:', user.email)
+
       // Prepare record data
       const recordData = {
         patta_id: formData.pattaId,
@@ -125,42 +186,101 @@ const AddNewRecordPage = () => {
           lng: parseFloat(formData.coordinates.lng)
         } : null,
         details_json: formData.detailsJson,
+<<<<<<< HEAD
+=======
+        photo_url: photoUrl,
+        created_by: user.id,
+>>>>>>> 507e77db4d917ec23b4bb11faf88ddc9ec1a6e20
         verification_status: 'pending'
       }
+
+      console.log('💾 Creating record with data:', recordData)
 
       // Create record in database
       const { data: record, error: dbError } = await dbService.records.create(recordData)
       
-      if (dbError) throw dbError
+      if (dbError) {
+        console.error('❌ Database error:', dbError)
+        
+        // Handle specific RLS error
+        if (dbError.message?.includes('row-level security')) {
+          throw new Error('Database access denied. Please contact administrator to set up proper permissions.')
+        }
+        
+        throw new Error(`Database error: ${dbError.message || dbError.details || JSON.stringify(dbError)}`)
+      }
+
+      if (!record) {
+        throw new Error('No record returned from database')
+      }
+
+      console.log('✅ Record created:', record)
 
       // Store face embedding if captured
-      if (faceData?.faceDescriptor && record.id) {
+      if (faceData?.descriptor && record.id) {
         try {
-          await apiService.face.store(record.id, faceData.faceDescriptor)
+          console.log('🧠 Storing face embedding...')
+          
+          // Convert Float32Array to regular array if needed
+          const faceEmbedding = Array.isArray(faceData.descriptor) 
+            ? faceData.descriptor 
+            : Array.from(faceData.descriptor);
+            
+          console.log('📊 Face embedding details:', {
+            type: typeof faceEmbedding,
+            isArray: Array.isArray(faceEmbedding),
+            length: faceEmbedding.length,
+            sample: faceEmbedding.slice(0, 3)
+          })
+          
+          await apiService.face.store(record.id, faceEmbedding)
+          console.log('✅ Face embedding stored successfully')
         } catch (faceError) {
-          console.error('Face storage error:', faceError)
-          // Continue without face data
+          console.error('⚠️ Face storage error:', faceError)
+          // Try direct database update as fallback
+          try {
+            const faceEmbedding = Array.isArray(faceData.descriptor) 
+              ? faceData.descriptor 
+              : Array.from(faceData.descriptor);
+              
+            const { error: updateError } = await supabase
+              .from('records')
+              .update({ face_embedding: faceEmbedding })
+              .eq('id', record.id)
+              
+            if (updateError) {
+              console.error('❌ Direct face update failed:', updateError)
+            } else {
+              console.log('✅ Face embedding stored via direct update')
+            }
+          } catch (directError) {
+            console.error('❌ Direct face storage also failed:', directError)
+          }
         }
       }
 
-      // Mint NFT on blockchain (async)
+      // Mint NFT on blockchain (async, don't wait)
       if (record.id) {
-        try {
-          await apiService.blockchain.mint(record.id, {
-            name: `FRA Land Title - ${record.patta_id}`,
-            description: `Forest Rights Act land title for ${record.name}`,
-            attributes: [
-              { trait_type: 'Patta ID', value: record.patta_id },
-              { trait_type: 'Owner', value: record.name },
-              { trait_type: 'Village', value: record.village },
-              { trait_type: 'District', value: record.district },
-              { trait_type: 'State', value: record.state }
-            ]
-          })
-        } catch (blockchainError) {
-          console.error('Blockchain error:', blockchainError)
-          // Continue without blockchain
-        }
+        setTimeout(async () => {
+          try {
+            console.log('🔗 Minting NFT...')
+            await apiService.blockchain.mint(record.id, {
+              name: `FRA Land Title - ${record.patta_id}`,
+              description: `Forest Rights Act land title for ${record.name}`,
+              attributes: [
+                { trait_type: 'Patta ID', value: record.patta_id },
+                { trait_type: 'Owner', value: record.name },
+                { trait_type: 'Village', value: record.village },
+                { trait_type: 'District', value: record.district },
+                { trait_type: 'State', value: record.state }
+              ]
+            })
+            console.log('✅ NFT minted')
+          } catch (blockchainError) {
+            console.error('⚠️ Blockchain error:', blockchainError)
+            // Continue without blockchain
+          }
+        }, 1000)
       }
 
       setSuccess('Record created successfully!')
@@ -171,8 +291,8 @@ const AddNewRecordPage = () => {
       }, 2000)
 
     } catch (err) {
-      console.error('Create record error:', err)
-      setError('Failed to create record. Please try again.')
+      console.error('💥 Create record error:', err)
+      setError(`Failed to create record: ${err.message || 'Please check the console for details.'}`)
     } finally {
       setLoading(false)
     }
@@ -473,6 +593,35 @@ const AddNewRecordPage = () => {
           >
             Cancel
           </button>
+          
+          {/* Test Button for Debugging */}
+          <button
+            type="button"
+            onClick={async () => {
+              console.log('🧪 Test Data:')
+              console.log('User:', user)
+              console.log('Form data:', formData)
+              console.log('Face data:', faceData)
+              console.log('Supabase client:', supabase)
+              
+              // Test authentication
+              const { data: { session } } = await supabase.auth.getSession()
+              console.log('Current session:', session)
+              
+              // Test database connection
+              try {
+                const { data, error } = await supabase.from('records').select('count').limit(1)
+                console.log('Database test result:', { data, error })
+              } catch (dbTest) {
+                console.error('Database test failed:', dbTest)
+              }
+            }}
+            className="btn btn-outline"
+            disabled={loading}
+          >
+            🧪 Test Debug
+          </button>
+          
           <button
             type="submit"
             className="btn btn-primary"
